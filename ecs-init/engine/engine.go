@@ -146,7 +146,9 @@ func (e *Engine) StartSupervised() error {
 		}
 
 		log.Info("Starting Amazon Elastic Container Service Agent")
+		log.Info("Before start")
 		agentExitCode, err = e.docker.StartAgent()
+		log.Info("After start")
 		if err != nil {
 			return engineError("could not start Agent", err)
 		}
