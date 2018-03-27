@@ -17,7 +17,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"strconv"
+	"time"
 
+	"github.com/aws/amazon-ecs-init/ecs-init/backoff"
 	"github.com/aws/amazon-ecs-init/ecs-init/cache"
 	"github.com/aws/amazon-ecs-init/ecs-init/docker"
 	"github.com/aws/amazon-ecs-init/ecs-init/exec"
@@ -31,6 +35,23 @@ const (
 	terminalSuccessAgentExitCode = 0
 	terminalFailureAgentExitCode = 5
 	upgradeAgentExitCode         = 42
+
+	AgentIntrospectionPort = 51678
+	// checkEndpointMinBackoffDuration specifies the minimum backoff duration for ping to 
+	// return a success response from agent introspection endpoint
+	checkEndpointMinBackoffDuration = 1 * time.Second
+	// checkEndpointMaxBackoffDuration specifies the maximum backoff duration for ping to 
+	// return a success response from agent introspection endpoint
+	checkEndpointMaxBackoffDuration = 2 * time.Second
+	// checkEndpointBackoffJitterMultiple specifies the backoff jitter multiplier
+	// coefficient when pinging the agent introspection endpoint
+	checkEndpointBackoffJitterMultiple = 0.2
+	// checkEndpointBackoffMultiple specifies the backoff multiplier coefficient when
+	// pinging the agent introspection endpoint
+	checkEndpointBackoffMultiple = 2
+	// checkEndpointMaxRetries specifies the maximum number of retries for ping to return
+	// a successful response from the agent introspection endpoint
+	checkEndpointMaxRetries = 10
 )
 
 // Engine contains methods invoked when ecs-init is run
@@ -160,6 +181,29 @@ func (e *Engine) StartSupervised() error {
 	}
 	if agentExitCode == terminalFailureAgentExitCode {
 		return errors.New("agent exited with terminal exit code")
+	}
+	return nil
+}
+
+// PostStart checks whether the agent introspection endpoint is ready, and if not, keeps checking until 
+// it's ready, or gives up after maximum retries.
+func (e *Engine) PostStart() error {
+	// Create a backoff for pinging the agent introspection endpoint.
+	pingBackoff := backoff.NewBackoff(checkEndpointMinBackoffDuration, checkEndpointMaxBackoffDuration, 
+		checkEndpointBackoffJitterMultiple, checkEndpointBackoffMultiple, checkEndpointMaxRetries)
+	for {
+		_, err := net.Dial("tcp", "localhost:" + strconv.Itoa(AgentIntrospectionPort))
+		if err == nil {
+			return nil
+		}
+		if !pingBackoff.ShouldRetry() {
+			log.Warn("Unable to connect to agent introspection enpoint during ecs start")
+			break
+		}
+		backoffDuration := pingBackoff.Duration()
+		log.Info("Agent introspection endpoint is not ready, backing off for %s, error: %s", 
+			backoffDuration, err)
+		time.Sleep(backoffDuration)
 	}
 	return nil
 }

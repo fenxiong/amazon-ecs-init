@@ -30,6 +30,7 @@ const (
 	VERSION  = "version"
 	PRESTART = "pre-start"
 	START    = "start"
+	POSTSTART = "post-start"
 	PRESTOP  = "pre-stop"
 	POSTSTOP = "post-stop"
 	RECACHE  = "reload-cache"
@@ -90,6 +91,10 @@ func actions(engine *engine.Engine) map[string]action {
 		START: action{
 			function:    engine.StartSupervised,
 			description: "Start the ECS Agent and wait for it to stop",
+		},
+		POSTSTART: action{
+			function:    engine.PostStart,
+			description: "Wait until the ECS Agent is ready", 
 		},
 		PRESTOP: action{
 			function:    engine.PreStop,
