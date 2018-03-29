@@ -27,6 +27,7 @@ import (
 	"github.com/aws/amazon-ecs-init/ecs-init/config"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	log "github.com/cihub/seelog"
 )
 
