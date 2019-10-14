@@ -100,3 +100,12 @@ clean:
 	-rm -rf ./x86_64
 	-rm -f ./amazon-ecs-init_${VERSION}*
 	-rm -f .srpm-done .rpm-done
+prepare-sources:: sources-internal checkout-release
+
+# Appended for releasing $(cat RELEASE_COMMIT)
+sources-internal: Makefile.internal
+	make -f Makefile.internal sources
+
+checkout-release: Makefile.internal
+	make -f Makefile.internal $@
+
