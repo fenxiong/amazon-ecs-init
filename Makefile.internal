@@ -1,0 +1,56 @@
+# -*- Makefile -*-
+#
+# Makefile.internal facilitates the switcheroo process to enable ECS
+# to publicly publish the ecs-init packaging and also support building
+# on Amazon Linux build systems internally.
+#
+# This Makefile should be used for the following targets:
+#
+# - sources
+#
+#   Fetch blobs from the appropriate blobstore
+#
+# - checkout-release
+#
+#   Switch to the commit contained in RELEASE_COMMIT, which should be
+#   updated in the respective "-internal" build branch.
+#
+.PHONY: sources
+
+# Checkout the staged release
+checkout-release: checkout-release-commit relink
+
+checkout-release-commit:
+	@echo "Checking out public release commit"
+	git checkout $(shell cat RELEASE_COMMIT)
+	@echo "Release commit:"
+	git show | cat
+
+relink:
+	echo SPECS >> .git/info/exclude
+	echo SOURCES >> .git/info/exclude
+	ln -s . SPECS
+	ln -s . SOURCES
+
+ifeq (,$(firstword $(wildcard /usr/bin/ccgit) $(wildcard /bin/ccgit)))
+### BEGIN GOBI/LOCAL RULES
+override BLOBSTORE = http://kaos-source.amazon.com/blobstore/
+sources:
+	awk '{ print "curl $(BLOBSTORE)" $$1 " -o " $$2 }' sources | sh -ex
+
+### END GOBI/LOCAL RULES
+else # ifndef CCGIT
+### BEGIN KAROO RULES
+
+ccgit/Makefile:
+	mkdir -p ccgit; cd ccgit; ccgit makefile
+
+sources: ccgit/Makefile
+	$(MAKE) -f ccgit/Makefile -C . $@
+
+### END KAROO RULES
+endif # ifndef CCGIT
+
+amzn2koji-build:
+	@echo run this:
+	@echo [your koji incantation] build --scratch ex2-ecs '"ccgit+https://git-codecommit.us-west-2.amazonaws.com/v1/repos/ecs-init;src_acct=679245241382#$(shell git rev-parse HEAD)"'
