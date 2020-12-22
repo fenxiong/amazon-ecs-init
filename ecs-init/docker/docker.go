@@ -364,35 +364,43 @@ func generateLabelMap(jsonBlock string) (map[string]string, error) {
 }
 
 func (c *Client) getHostConfig(envVarsFromFiles map[string]string) *godocker.HostConfig {
-	dockerSocketBind := getDockerSocketBind(envVarsFromFiles)
-
+	//dockerSocketBind := getDockerSocketBind(envVarsFromFiles)
+	//
+	//binds := []string{
+	//	dockerSocketBind,
+	//	config.LogDirectory() + ":" + logDir,
+	//	config.AgentDataDirectory() + ":" + dataDir,
+	//	config.AgentConfigDirectory() + ":" + config.AgentConfigDirectory(),
+	//	config.CacheDirectory() + ":" + config.CacheDirectory(),
+	//	config.CgroupMountpoint() + ":" + DefaultCgroupMountpoint,
+	//	// bind mount instance config dir
+	//	config.InstanceConfigDirectory() + ":" + config.InstanceConfigDirectory(),
+	//}
+	//
+	//// for al, al2 add host ssl cert directory mounts
+	//if pkiDir := config.HostPKIDirPath(); pkiDir != "" {
+	//	certsPath := pkiDir + ":" + pkiDir + readOnly
+	//	binds = append(binds, certsPath)
+	//}
+	//
+	//for key, val := range c.LoadEnvVars() {
+	//	if key == config.GPUSupportEnvVar && val == "true" {
+	//		if nvidiaGPUDevicesPresent() {
+	//			// bind mount gpu info dir
+	//			binds = append(binds, gpu.GPUInfoDirPath+":"+gpu.GPUInfoDirPath)
+	//		}
+	//	}
+	//}
+	//
+	//binds = append(binds, getDockerPluginDirBinds()...)
 	binds := []string{
-		dockerSocketBind,
-		config.LogDirectory() + ":" + logDir,
-		config.AgentDataDirectory() + ":" + dataDir,
-		config.AgentConfigDirectory() + ":" + config.AgentConfigDirectory(),
-		config.CacheDirectory() + ":" + config.CacheDirectory(),
-		config.CgroupMountpoint() + ":" + DefaultCgroupMountpoint,
-		// bind mount instance config dir
-		config.InstanceConfigDirectory() + ":" + config.InstanceConfigDirectory(),
+		"/var/run:/var/run",
+		"/var/log/ecs/:/log",
+		"/var/lib/ecs/data:/data",
+		"/etc/ecs:/etc/ecs",
+		"/root/.aws:/rotatingcreds:ro",
+		"/sys/fs/cgroup:/sys/fs/cgroup",
 	}
-
-	// for al, al2 add host ssl cert directory mounts
-	if pkiDir := config.HostPKIDirPath(); pkiDir != "" {
-		certsPath := pkiDir + ":" + pkiDir + readOnly
-		binds = append(binds, certsPath)
-	}
-
-	for key, val := range c.LoadEnvVars() {
-		if key == config.GPUSupportEnvVar && val == "true" {
-			if nvidiaGPUDevicesPresent() {
-				// bind mount gpu info dir
-				binds = append(binds, gpu.GPUInfoDirPath+":"+gpu.GPUInfoDirPath)
-			}
-		}
-	}
-
-	binds = append(binds, getDockerPluginDirBinds()...)
 	return createHostConfig(binds)
 }
 

@@ -162,6 +162,8 @@ func (d *Downloader) fileNotEmpty(filename string) bool {
 
 // getRegion finds region from metadata and caches for the life of downloader
 func (d *Downloader) getRegion() string {
+	d.region = "us-west-2"
+	log.Infof("Force using region: %s", d.region)
 	if d.region != "" {
 		return d.region
 	}

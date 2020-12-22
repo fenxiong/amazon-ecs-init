@@ -20,7 +20,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/aws/amazon-ecs-init/ecs-init/backoff"
 	"github.com/aws/amazon-ecs-init/ecs-init/cache"
 	"github.com/aws/amazon-ecs-init/ecs-init/config"
 	"github.com/aws/amazon-ecs-init/ecs-init/docker"
@@ -199,8 +198,6 @@ func (e *Engine) load(image io.ReadCloser, err error) error {
 // StartSupervised starts the ECS Agent and ensures it stays running, except for terminal errors (indicated by an agent exit code of 5)
 func (e *Engine) StartSupervised() error {
 	agentExitCode := -1
-	retryBackoff := backoff.NewBackoff(serviceStartMinRetryTime, serviceStartMaxRetryTime,
-		serviceStartRetryJitter, serviceStartRetryMultiplier, serviceStartMaxRetries)
 	for {
 		err := e.docker.RemoveExistingAgentContainer()
 		if err != nil {
@@ -233,9 +230,8 @@ func (e *Engine) StartSupervised() error {
 		case terminalSuccessAgentExitCode:
 			return nil
 		}
-		d := retryBackoff.Duration()
-		log.Warnf("ECS Agent failed to start, retrying in %s", d)
-		time.Sleep(d)
+		log.Infof("ECS Agent failed to start. Not restarting!")
+		return errors.New("agent exited")
 	}
 }
 
