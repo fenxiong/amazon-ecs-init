@@ -18,6 +18,8 @@ import (
 	"os"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestDockerUnixSocketWithoutDockerHost(t *testing.T) {
@@ -244,4 +246,10 @@ func TestAgentPrivilegedNotConfigured(t *testing.T) {
 			t.Errorf("Agent was expected to be running without privileged mode. Testcase (%s)", test)
 		}
 	}
+}
+
+func TestAgentrRunningOnPrem(t *testing.T) {
+	os.Setenv("ECS_AGENT_EXTERNAL", "true")
+	defer os.Unsetenv("ECS_AGENT_EXTERNAL")
+	assert.True(t, RunningOnPrem())
 }

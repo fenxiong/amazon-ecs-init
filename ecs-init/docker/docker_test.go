@@ -472,6 +472,15 @@ func TestGetContainerConfigWithFileOverrides(t *testing.T) {
 
 }
 
+func TestGetContainerConfigOnPrem(t *testing.T) {
+	os.Setenv("ECS_AGENT_EXTERNAL", "true")
+	defer os.Unsetenv("ECS_AGENT_EXTERNAL")
+
+	client := &Client{}
+	cfg := client.getContainerConfig(map[string]string{})
+	assert.Contains(t, cfg.Env, "ECS_ENABLE_TASK_ENI=false")
+}
+
 func TestGetInstanceConfig(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
 	defer mockCtrl.Finish()
@@ -750,4 +759,19 @@ func TestGetDockerSocketBind(t *testing.T) {
 			assert.Equal(t, tc.expectedBind, bind)
 		})
 	}
+}
+
+func TestGetHostConfigOnPrem(t *testing.T) {
+	os.Setenv("ECS_AGENT_EXTERNAL", "true")
+	defer os.Unsetenv("ECS_AGENT_EXTERNAL")
+
+	credsBind := "/root/.aws:/rotatingcreds:ro"
+
+	client := &Client{}
+	hostConfig := client.getHostConfig(map[string]string{})
+	assert.Contains(t, hostConfig.Binds, credsBind)
+
+	os.Setenv("ECS_AGENT_EXTERNAL", "false")
+	hostConfig = client.getHostConfig(map[string]string{})
+	assert.NotContains(t, hostConfig.Binds, credsBind)
 }
