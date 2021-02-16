@@ -121,7 +121,7 @@ endif
 
 BUILDROOT/ecs-agent.tar:
 	mkdir -p BUILDROOT
-	curl -o BUILDROOT/ecs-agent.tar ${AGENT_URL}
+	cp /home/ubuntu/ecs-agent.tar BUILDROOT/ecs-agent.tar
 
 .generic-rpm-done:
 	./scripts/update-version.sh
