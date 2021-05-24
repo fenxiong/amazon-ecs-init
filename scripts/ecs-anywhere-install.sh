@@ -7,124 +7,6 @@ fail() {
     exit 1
 }
 
-check-option-value() {
-    if [ "${2:0:2}" == "--" ]; then
-        echo "Option $1 was passed an invalid value: $2. Perhaps you passed in an empty env var?"
-        fail
-    fi
-}
-
-usage() {
-    echo "$(basename "$0") [--help] --region REGION --activation-code CODE --activation-id ID [--cluster CLUSTER] [--docker-install-source all|docker|distro|none] [--ecs-version VERSION] [--ecs-endpoint ENDPOINT] [--skip-registration] [--no-start]
-
-  --help
-        (optional) display this help message.
-  --region string
-        (required) this must match the region of your ECS cluster and SSM activation.
-  --activation-id string
-        (required) activation id from the create activation command. Not required if --skip-registration is specified.
-  --activation-code string
-        (required) activation code from the create activation command. Not required if --skip-registration is specified.
-  --cluster string
-        (optional) pass the cluster name that ECS agent will connect too. By default its value is 'default'.
-  --docker-install-source
-        (optional) Source of docker installation. Possible values are 'all, docker, distro, none'. Defaults to 'all'.
-  --ecs-version string
-        (optional) Version of the ECS agent rpm/deb package to use. If not specified, default to latest.
-  --skip-registration
-        (optional) if this is enabled, SSM agent install and instance registration with SSM is skipped.
-  --no-start
-        (optional) if this flag is provided, SSM agent, docker and ECS agent will not be started by the script despite being installed."
-}
-
-# required:
-REGION=""
-ACTIVATION_CODE=""
-ACTIVATION_ID=""
-# optional:
-SKIP_REGISTRATION=false
-ECS_CLUSTER=""
-DOCKER_SOURCE=""
-ECS_VERSION=""
-DEB_URL=""
-RPM_URL=""
-ECS_ENDPOINT=""
-# Whether to check signature for the downloaded amazon-ecs-init package. true unless --skip-gpg-check
-# specified. --skip-gpg-check is mostly for testing purpose (so that we can test a custom build of ecs init package
-# without having to sign it).
-CHECK_SIG=true
-NO_START=false
-while :; do
-    case "$1" in
-    --help)
-        usage
-        exit 0
-        ;;
-    --region)
-        check-option-value "$1" "$2"
-        REGION="$2"
-        shift 2
-        ;;
-    --cluster)
-        check-option-value "$1" "$2"
-        ECS_CLUSTER="$2"
-        shift 2
-        ;;
-    --activation-code)
-        check-option-value "$1" "$2"
-        ACTIVATION_CODE="$2"
-        shift 2
-        ;;
-    --activation-id)
-        check-option-value "$1" "$2"
-        ACTIVATION_ID="$2"
-        shift 2
-        ;;
-    --docker-install-source)
-        check-option-value "$1" "$2"
-        DOCKER_SOURCE="$2"
-        shift 2
-        ;;
-    --ecs-version)
-        check-option-value "$1" "$2"
-        ECS_VERSION="$2"
-        shift 2
-        ;;
-    --deb-url)
-        check-option-value "$1" "$2"
-        DEB_URL="$2"
-        shift 2
-        ;;
-    --rpm-url)
-        check-option-value "$1" "$2"
-        RPM_URL="$2"
-        shift 2
-        ;;
-    --ecs-endpoint)
-        check-option-value "$1" "$2"
-        ECS_ENDPOINT="$2"
-        shift 2
-        ;;
-    --skip-registration)
-        SKIP_REGISTRATION=true
-        shift 1
-        ;;
-    --no-start)
-        NO_START=true
-        shift 1
-        ;;
-    --skip-gpg-check)
-        CHECK_SIG=false
-        shift 1
-        ;;
-    *)
-        [ -z "$1" ] && break
-        echo "invalid option: [$1]"
-        fail
-        ;;
-    esac
-done
-
 # check if the script is run with root or sudo
 if [ $(id -u) -ne 0 ]; then
     echo "Please run as root."
@@ -145,14 +27,71 @@ if [ -f "/sys/fs/cgroup/cgroup.controllers" ]; then
     fail
 fi
 
-SSM_SERVICE_NAME="amazon-ssm-agent"
-SSM_BIN_NAME="amazon-ssm-agent"
-if systemctl is-enabled snap.amazon-ssm-agent.amazon-ssm-agent.service &>/dev/null; then
-    echo "Detected SSM agent installed via snap."
-    SSM_SERVICE_NAME="snap.amazon-ssm-agent.amazon-ssm-agent.service"
-    SSM_BIN_NAME="/snap/amazon-ssm-agent/current/amazon-ssm-agent"
-fi
-SSM_MANAGED_INSTANCE_ID=""
+# required:
+REGION=""
+ACTIVATION_CODE=""
+ACTIVATION_ID=""
+# optional:
+SKIP_REGISTRATION=false
+ECS_CLUSTER=""
+DOCKER_SOURCE=""
+ECS_VERSION=""
+DEB_URL=""
+RPM_URL=""
+ECS_ENDPOINT=""
+# Whether to check sha for the downloaded ecs-init package. true unless --rpm-url or --deb-url is specified.
+CHECK_SHA=true
+while :; do
+    case "$1" in
+    --region)
+        REGION="$2"
+        shift 2
+        ;;
+    --cluster)
+        ECS_CLUSTER="$2"
+        shift 2
+        ;;
+    --activation-code)
+        ACTIVATION_CODE="$2"
+        shift 2
+        ;;
+    --activation-id)
+        ACTIVATION_ID="$2"
+        shift 2
+        ;;
+    --docker-install-source)
+        DOCKER_SOURCE="$2"
+        shift 2
+        ;;
+    --ecs-version)
+        ECS_VERSION="$2"
+        shift 2
+        ;;
+    --deb-url)
+        DEB_URL="$2"
+        CHECK_SHA=false
+        shift 2
+        ;;
+    --rpm-url)
+        RPM_URL="$2"
+        CHECK_SHA=false
+        shift 2
+        ;;
+    --ecs-endpoint)
+        ECS_ENDPOINT="$2"
+        shift 2
+        ;;
+    --skip-registration)
+        SKIP_REGISTRATION=true
+        shift 1
+        ;;
+    *)
+        [ -z "$1" ] && break
+        echo "invalid option: [$1]"
+        fail
+        ;;
+    esac
+done
 
 if [ -z "$REGION" ]; then
     echo "--region is required"
@@ -161,12 +100,7 @@ fi
 # If activation code is absent and skip activation flag is present, set flag to skip ssm registration
 # if both activation code is present
 if $SKIP_REGISTRATION; then
-    echo "Skipping ssm registration."
-    if ! systemctl is-enabled $SSM_SERVICE_NAME &>/dev/null; then
-        echo "--skip-registration flag specified but the SSM agent service is not running."
-        echo "a running SSM agent service is required for ECS Anywhere."
-        fail
-    fi
+    echo "Skipping registering as --skip-registration flag is specified."
 else
     if [[ -z $ACTIVATION_ID || -z $ACTIVATION_CODE ]]; then
         echo "Both --activation-id and --activation-code are required unless --skip-registration is specified."
@@ -193,19 +127,14 @@ else
     fail
 fi
 
-S3_BUCKET="amazon-ecs-agent-$REGION"
+S3_BUCKET="amazon-ecs-agent-packages-preview"
 RPM_PKG_NAME="amazon-ecs-init-$ECS_VERSION.$ARCH.rpm"
 DEB_PKG_NAME="amazon-ecs-init-$ECS_VERSION.$ARCH_ALT.deb"
-S3_URL_SUFFIX=""
-if grep -q "^cn-" <<< "$REGION"; then
-    S3_URL_SUFFIX=".cn"
-fi
-
 if [ -z "$RPM_URL" ]; then
-    RPM_URL="https://$S3_BUCKET.s3.amazonaws.com${S3_URL_SUFFIX}/$RPM_PKG_NAME"
+    RPM_URL="https://$S3_BUCKET.s3.amazonaws.com/$RPM_PKG_NAME"
 fi
 if [ -z "$DEB_URL" ]; then
-    DEB_URL="https://$S3_BUCKET.s3.amazonaws.com${S3_URL_SUFFIX}/$DEB_PKG_NAME"
+    DEB_URL="https://$S3_BUCKET.s3.amazonaws.com/$DEB_PKG_NAME"
 fi
 
 # source /etc/os-release to get the VERSION_ID and ID fields
@@ -270,104 +199,81 @@ else
     fail
 fi
 
-get-ssm-managed-instance-id() {
-    SSM_REGISTRATION_FILE='/var/lib/amazon/ssm/Vault/Store/RegistrationKey'
+INSTANCE_REGISTERED=false
+check-instance-registered() {
+    try "checking if instance already has an SSM managed instance ID."
+    SSM_REGISTRATION_FILE='/var/lib/amazon/ssm/registration'
     if [ -f ${SSM_REGISTRATION_FILE} ]; then
-        SSM_MANAGED_INSTANCE_ID=$(jq -r ".instanceID" $SSM_REGISTRATION_FILE)
+        MANAGED_INSTANCE_ID=$(jq -r ".ManagedInstanceID" $SSM_REGISTRATION_FILE)
+        if [ ! -z $MANAGED_INSTANCE_ID ]; then
+            INSTANCE_REGISTERED=true
+            return
+        fi
     fi
-}
-
-curl-helper() {
-    if ! curl -o "$1" "$2" -fSs; then
-        echo "Failed to download $2"
-        fail
-    fi
+    ok
 }
 
 register-ssm-agent() {
-    try "Register SSM agent"
-    get-ssm-managed-instance-id
-    if [ -z "$SSM_MANAGED_INSTANCE_ID" ]; then
-        systemctl stop "$SSM_SERVICE_NAME" &>/dev/null
-        $SSM_BIN_NAME -register -code "$ACTIVATION_CODE" -id "$ACTIVATION_ID" -region "$REGION"
-        systemctl enable "$SSM_SERVICE_NAME"
-        if ! $NO_START; then
-            systemctl start "$SSM_SERVICE_NAME"
-        else
-            echo "Skip starting ssm agent because --no-start is specified."
-        fi
-        systemctl start "$SSM_SERVICE_NAME"
-        echo "SSM agent has been registered."
+    check-instance-registered
+    if ! $INSTANCE_REGISTERED; then
+        SERVICE_NAME="amazon-ssm-agent"
+        systemctl stop "$SERVICE_NAME"
+        amazon-ssm-agent -register -code "$ACTIVATION_CODE" -id "$ACTIVATION_ID" -region "$REGION"
+        systemctl enable "$SERVICE_NAME"
+        systemctl start "$SERVICE_NAME"
+        echo "Instance is registered."
     else
-        echo "SSM agent is already registered. Managed instance ID: $SSM_MANAGED_INSTANCE_ID"
+        echo "instance registration found."
     fi
-    ok
 }
 
 install-ssm-agent() {
     try "install ssm agent"
-    if systemctl is-enabled $SSM_SERVICE_NAME &>/dev/null; then
-        echo "SSM agent is already installed."
+    if [ "$(systemctl is-enabled snap.amazon-ssm-agent.amazon-ssm-agent.service)" == "enabled" ]; then
+        check-instance-registered
+        if $INSTANCE_REGISTERED; then
+            echo "Instance has been registered."
+            return
+        else
+            echo "We currently don't support instance registration on ssm agent installed via Snap. Please ensure your instance is registered and then rerun the script with --skip-registration flag."
+            fail
+        fi
+    elif [ "$(systemctl is-enabled amazon-ssm-agent)" == "enabled" ]; then
+        echo "ssm agent is installed, checking if the instance is registered."
+        check-instance-registered
+        if $INSTANCE_REGISTERED; then
+            echo "Instance has been registered."
+            return
+        else
+            echo "SSM Agent is installed. The instance needs to be registered."
+            register-ssm-agent
+            return
+        fi
     else
-        local dir
-        dir="$(mktemp -d)"
-        local SSM_DEB_URL="https://s3.$REGION.amazonaws.com${S3_URL_SUFFIX}/amazon-ssm-$REGION/latest/debian_$ARCH_ALT/amazon-ssm-agent.deb"
-        local SSM_RPM_URL="https://s3.$REGION.amazonaws.com${S3_URL_SUFFIX}/amazon-ssm-$REGION/latest/linux_$ARCH_ALT/amazon-ssm-agent.rpm"
-        local SSM_DEB_PKG_NAME="ssm-agent.deb"
-        local SSM_RPM_PKG_NAME="ssm-agent.rpm"
-
         case "$PKG_MANAGER" in
-        apt)
-            curl-helper "$dir/$SSM_DEB_PKG_NAME" "$SSM_DEB_URL"
-            curl-helper "$dir/$SSM_DEB_PKG_NAME.sig" "$SSM_DEB_URL.sig"
-            ssm-agent-signature-verify "$dir/$SSM_DEB_PKG_NAME.sig" "$dir/$SSM_DEB_PKG_NAME"
-            chmod -R a+rX "$dir"
-            dpkg -i "$dir/ssm-agent.deb"
+        dnf)
+            dnf install -y "https://s3.$REGION.amazonaws.com/amazon-ssm-$REGION/latest/linux_$ARCH_ALT/amazon-ssm-agent.rpm"
             ;;
-        dnf | yum | zypper)
-            curl-helper "$dir/$SSM_RPM_PKG_NAME" "$SSM_RPM_URL"
-            curl-helper "$dir/$SSM_RPM_PKG_NAME.sig" "$SSM_RPM_URL.sig"
-            ssm-agent-signature-verify "$dir/$SSM_RPM_PKG_NAME.sig" "$dir/$SSM_RPM_PKG_NAME"
-            local args=""
-            local install_args="-y"
-            if [[ "$PKG_MANAGER" == "zypper" ]]; then
-                install_args="${install_args} --allow-unsigned-rpm"
-                args="--no-gpg-checks"
-            fi
-            $PKG_MANAGER ${args} install ${install_args} "$dir/$SSM_RPM_PKG_NAME"
+        yum)
+            yum install -y "https://s3.$REGION.amazonaws.com/amazon-ssm-$REGION/latest/linux_$ARCH_ALT/amazon-ssm-agent.rpm"
+            ;;
+        apt)
+            local dir
+            dir="$(mktemp -d)"
+            curl -o "$dir/ssm-agent.deb" "https://s3.$REGION.amazonaws.com/amazon-ssm-$REGION/latest/debian_$ARCH_ALT/amazon-ssm-agent.deb"
+            dpkg -i "$dir/ssm-agent.deb"
+            rm -rf "$dir"
+            ;;
+        zypper)
+            local dir
+            dir="$(mktemp -d)"
+            curl -o "$dir/ssm-agent.rpm" "https://s3.$REGION.amazonaws.com/amazon-ssm-$REGION/latest/linux_$ARCH_ALT/amazon-ssm-agent.rpm"
+            rpm --install "$dir/ssm-agent.rpm"
             ;;
         esac
-        rm -rf "$dir"
     fi
     # register the instance
     register-ssm-agent
-    ok
-}
-
-ssm-agent-signature-verify() {
-    try "verify the signature of amazon-ssm-agent package"
-    if ! command -v gpg; then
-        echo "WARNING: gpg command not available on this server, not able to verify amazon-ssm-agent package signature."
-        ok
-        return
-    fi
-
-    curl-helper "$dir/amazon-ssm-agent.gpg" "https://raw.githubusercontent.com/aws/amazon-ecs-init/dev/scripts/amazon-ssm-agent.gpg"
-    local fp
-    fp=$(gpg --quiet --with-colons --with-fingerprint "$dir/amazon-ssm-agent.gpg" | awk -F: '$1 == "fpr" {print $10;}')
-    echo "$fp"
-    if [ "$fp" != "8108A07A9EBE248E3F1C63F254F4F56E693ECA21" ]; then
-        echo "amazon-ssm-agent GPG public key fingerprint verification fail. Stop the installation of the amazon-ssm-agent. Please contact AWS Support."
-        fail
-    fi
-    gpg --import "$dir/amazon-ssm-agent.gpg"
-
-    if gpg --verify "$1" "$2"; then
-        echo "amazon-ssm-agent GPG verification passed. Install the amazon-ssm-agent."
-    else
-        echo "amazon-ssm-agent GPG verification failed. Stop the installation of the amazon-ssm-agent. Please contact AWS Support."
-        fail
-    fi
 
     ok
 }
@@ -469,28 +375,34 @@ install-ecs-agent() {
     try "install ecs agent"
     if [ -x "/usr/libexec/amazon-ecs-init" ]; then
         echo "ecs agent is already installed"
+        # TODO upgrade the agent?
         ok
         return
     fi
 
-    local dir
-    dir="$(mktemp -d)"
     case "$PKG_MANAGER" in
     apt)
-        curl-helper "$dir/$DEB_PKG_NAME" "$DEB_URL"
-        if $CHECK_SIG; then
-            curl-helper "$dir/$DEB_PKG_NAME.asc" "$DEB_URL.asc"
-            ecs-init-signature-verify "$dir/$DEB_PKG_NAME.asc" "$dir/$DEB_PKG_NAME"
+        local dir
+        dir="$(mktemp -d)"
+        curl -o "$dir/$DEB_PKG_NAME" "$DEB_URL"
+        if $CHECK_SHA; then
+            pushd $dir
+            curl -o "$DEB_PKG_NAME.sha256" "$DEB_URL.sha256"
+            sha256sum -c "$DEB_PKG_NAME.sha256"
+            popd
         fi
-        chmod -R a+rX "$dir"
         apt install -y "$dir/$DEB_PKG_NAME"
         rm -rf "$dir"
         ;;
     dnf | yum | zypper)
-        curl-helper "$dir/$RPM_PKG_NAME" "$RPM_URL"
-        if $CHECK_SIG; then
-            curl-helper "$dir/$RPM_PKG_NAME.asc" "$RPM_URL.asc"
-            ecs-init-signature-verify "$dir/$RPM_PKG_NAME.asc" "$dir/$RPM_PKG_NAME"
+        local dir
+        dir="$(mktemp -d)"
+        curl -o "$dir/$RPM_PKG_NAME" "$RPM_URL"
+        if $CHECK_SHA; then
+            pushd $dir
+            curl -o "$RPM_PKG_NAME.sha256" "$RPM_URL.sha256"
+            sha256sum -c "$RPM_PKG_NAME.sha256"
+            popd
         fi
         local args="-y"
         if [[ "$PKG_MANAGER" == "zypper" ]]; then
@@ -515,81 +427,13 @@ install-ecs-agent() {
     fi
     echo "AWS_DEFAULT_REGION=$REGION" >>/var/lib/ecs/ecs.config
     echo "ECS_EXTERNAL=true" >>/var/lib/ecs/ecs.config
-    if [ -n "$ECS_ENDPOINT" ]; then
+    if [ ! -z "$ECS_ENDPOINT" ]; then
         echo "ECS_BACKEND_HOST=$ECS_ENDPOINT" >>/var/lib/ecs/ecs.config
     fi
     systemctl enable ecs
-    if ! $NO_START; then
-        systemctl start ecs
-    else
-        echo "Skip starting ecs agent because --no-start is specified."
-    fi
+    systemctl start ecs
 
     ok
-}
-
-ecs-init-signature-verify() {
-    try "verify the signature of amazon-ecs-init package"
-    if ! command -v gpg; then
-        echo "WARNING: gpg command not available on this server, not able to verify amazon-ecs-init package signature."
-        ok
-        return
-    elif ! command -v dirmngr; then
-        echo "WARNING: dirmngr not installed on this server, not able to verify amazon-ecs-init package signature."
-        ok
-        return
-    fi
-
-    # TODO: change link to official repo after merging first time.
-    curl-helper "$dir/amazon-ecs-agent.gpg" "https://raw.githubusercontent.com/fenxiong/amazon-ecs-init/ecs-pubkey/scripts/amazon-ecs-agent.gpg"
-    gpg --import "$dir/amazon-ecs-agent.gpg"
-    if gpg --verify "$1" "$2"; then
-        echo "amazon-ecs-init GPG verification passed. Install amazon-ecs-init."
-    else
-        echo "amazon-ecs-init GPG verification failed. Stop the installation of amazon-ecs-init. Please contact AWS Support."
-        fail
-    fi
-
-    ok
-}
-
-wait-agent-start() {
-    if $NO_START; then
-        echo "--no-start is specified. Not verifying ecs agent startup."
-        return
-    fi
-    try "wait for ECS agent to start"
-
-    retryLimit=10
-    i=0
-    for ((i = 0 ; i < retryLimit ; i++))
-    do
-        curlResult="$(timeout 10 curl -s http://localhost:51678/v1/metadata | jq .ContainerInstanceArn)"
-        if [ ! "$curlResult" == "null" ] && [ -n "$curlResult" ]; then
-            echo "Ping ECS Agent registered successfully! Container instance arn: $curlResult"
-            echo ""
-            echo "You can check your ECS cluster here https://console.aws.amazon.com/ecs/home?region=$REGION#/clusters/$ECS_CLUSTER"
-            ok
-            return
-        fi
-        sleep 10 # wait for 10s before next retry for agent to start up.
-    done
-
-    # TODO Update to ecs anywhere specific documentation when available.
-    echo "Timed out waiting for ECS Agent to start. Please check logs at /var/log/ecs/ecs-agent.log and follow troubleshooting documentation at https://docs.aws.amazon.com/AmazonECS/latest/developerguide/troubleshooting.html"
-    fail
-}
-
-show-license() {
-    echo ""
-    echo "##########################"
-    echo "This script installed three open source packages that all use Apache License 2.0."
-    echo "You can view their license information here:"
-    echo "  - ECS Agent https://github.com/aws/amazon-ecs-agent/blob/master/LICENSE"
-    echo "  - SSM Agent https://github.com/aws/amazon-ssm-agent/blob/master/LICENSE"
-    echo "  - Docker engine https://github.com/moby/moby/blob/master/LICENSE"
-    echo "##########################"
-    echo ""
 }
 
 if ! $SKIP_REGISTRATION; then
@@ -597,5 +441,3 @@ if ! $SKIP_REGISTRATION; then
 fi
 install-docker "$DOCKER_SOURCE"
 install-ecs-agent
-wait-agent-start
-show-license
