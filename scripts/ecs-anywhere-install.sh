@@ -135,10 +135,10 @@ if grep -q "^cn-" <<< "$REGION"; then
     S3_URL_SUFFIX=".cn"
 fi
 if [ -z "$RPM_URL" ]; then
-    RPM_URL="https://$S3_BUCKET.s3.amazonaws.com${S3_URL_SUFFIX}/$RPM_PKG_NAME"
+    RPM_URL="https://$S3_BUCKET.s3.amazonaws.com/$RPM_PKG_NAME"
 fi
 if [ -z "$DEB_URL" ]; then
-    DEB_URL="https://$S3_BUCKET.s3.amazonaws.com${S3_URL_SUFFIX}/$DEB_PKG_NAME"
+    DEB_URL="https://$S3_BUCKET.s3.amazonaws.com/$DEB_PKG_NAME"
 fi
 
 # source /etc/os-release to get the VERSION_ID and ID fields
